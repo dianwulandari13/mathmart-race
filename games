@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MathMart Race - Final Harmony Edition</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+    <style>
+        body { margin: 0; background: #87CEEB; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
+        canvas { display: block; touch-action: none; }
+        #editor-ui {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); display: none; z-index: 9999;
+            justify-content: center; align-items: center;
+        }
+        .editor-container {
+            background: white; width: 90%; max-width: 750px; max-height: 85vh;
+            border-radius: 15px; padding: 20px; overflow-y: auto; font-family: Arial, sans-serif;
+        }
+        .q-block { background: #f1f1f1; border: 2px solid #FF4500; padding: 15px; margin-bottom: 20px; border-radius: 10px; }
+        .input-group { margin-bottom: 8px; }
+        .settings-row { display: flex; gap: 15px; align-items: center; background: #fff; padding: 10px; border-radius: 5px; border: 1px inset #ccc; margin-top: 10px; }
+        label { display: block; font-size: 12px; font-weight: bold; color: #555; }
+        input[type="text"], input[type="number"], select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        input[type="checkbox"] { transform: scale(1.3); cursor: pointer; }
+        .btn-add, .btn-reset { padding: 10px; border: none; border-radius: 5px; cursor: pointer; width: 48%; font-weight: bold; }
+        .btn-add { background: #32CD32; color: white; }
+        .btn-reset { background: #FFD700; color: black; float: right; }
+        .btn-save { background: #1E90FF; color: white; padding: 15px; border: none; border-radius: 5px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 10px; }
+        .btn-del { background: red; color: white; border: none; padding: 5px 10px; border-radius: 3px; float: right; }
+    </style>
+</head>
+<body>
+
+<div id="editor-ui">
+    <div class="editor-container">
+        <h2 style="text-align:center; color:#FF4500;">📝 EDITOR SOAL MATHMART</h2>
+        <div id="soal-list"></div>
+        <div style="width: 100%;">
+            <button class="btn-add" onclick="tambahSoal()">+ Tambah Soal Baru</button>
+            <button class="btn-reset" onclick="resetKeDefault()">🔄 Reset Ke Default</button>
+        </div>
+        <button class="btn-save" onclick="simpanEditor()">SIMPAN & KELUAR</button>
+    </div>
+</div>
+
+<script>
+// --- DATABASE ---
+const defaultSoal = [
+    { q: "P = {Hari dalam seminggu}. Bentuk daftar anggota yang benar adalah...", a: [ "{Senin, Selasa, Rabu, Kamis, Jumat, Sabtu, Minggu}", "{Minggu, Senin, Selasa, Rabu, Kamis}", "{Januari, Februari, Maret, April, Mei, Juni}", "{Senin, Selasa, Rabu, Kamis, Jumat, Sabtu}"], c: 0, limit: 30, shuffle: true },
+    { q: "B = { 1, 3, 5, 7 }. Sifat keanggotaannya yang benar adalah...", a: ["Bil. ganjil antara 1 dan 7", "Bil. asli kurang dari 8", "Himpunan bilangan ganjil kurang dari 8", "Himpunan prima kurang dari 8"], c: 2, limit: 30, shuffle: true },
+    { q: "A = {...., -2, -1, 0, 1}. Notasi pembentuk himpunan yang benar...", a: ["{ x | x < 1, x ∈ Bil. Bulat }", "{ x | x ≤ 1, x ∈ Bil. Bulat }", "{ x | x > 1, x ∈ Bil. Cacah }", "{ x | x ≥ 1, x ∈ Bil. Asli }"], c: 1, limit: 30, shuffle: true },
+    { q: "C = { a | a < 4, a elemen bilangan cacah }. Kardinalitas n(C) adalah...", a: ["n(C) = 3", "n(C) = 4", "n(C) = 5", "n(C) = 6"], c: 1, limit: 20, shuffle: false }
+];
+
+let bankSoal = JSON.parse(localStorage.getItem('race_soal')) || [...defaultSoal];
+const config = {
+    type: Phaser.AUTO,
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: 1280, height: 800 },
+    backgroundColor: '#87CEEB',
+    input: { activePointers: 5 },
+    scene: { preload, create, update }
+};
+
+const game = new Phaser.Game(config);
+let players = [];
+let playerCount = 2;
+let finishedCount = 0;
+let leaderboardShown = false;
+let gameActive = false;
+const pColors = [0xFF4500, 0x32CD32, 0x1E90FF, 0xFF1493, 0xFFA500]; 
+const pEmojis = ["🛒👨", "🛒👩", "🛒🧑", "🛒👧", "🛒👦"];
+const snacks = ["🍫", "🍬", "🍟", "🥤", "🍩", "🍪", "🍦"];
+
+function preload() {}
+function create() { initStartMenu(this); }
+
+function initStartMenu(scene) {
+    scene.children.removeAll();
+    if (scene.musicInterval) clearInterval(scene.musicInterval);
+    gameActive = false; finishedCount = 0; leaderboardShown = false;
+    scene.add.rectangle(640, 400, 1000, 520, 0xffffff).setStrokeStyle(12, 0xFF4500);
+    scene.add.text(640, 270, "🛒 MATHMART RACE 🛒", { fontSize: '70px', color: '#FF4500', align: 'center', fontStyle: '900', stroke: '#000', strokeThickness: 10 }).setOrigin(0.5);
+    const editBtn = scene.add.rectangle(640, 355, 200, 45, 0x1E90FF).setInteractive({ useHandCursor: true });
+    scene.add.text(640, 355, "EDIT SOAL", { fontSize: '22px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+    editBtn.on('pointerdown', () => bukaEditor());
+    scene.add.text(640, 420, "PILIH JUMLAH PEMAIN:", { fontSize: '32px', color: '#000', fontStyle: 'bold' }).setOrigin(0.5);
+    [2, 3, 4, 5].forEach((num, i) => {
+        const xPos = 640 + (-300 + (i * 200));
+        const btnBg = scene.add.rectangle(xPos, 530, 160, 110, 0x32CD32).setStrokeStyle(6, 0x000).setInteractive({ useHandCursor: true });
+        scene.add.text(xPos, 530, num, { fontSize: '70px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+        btnBg.on('pointerdown', () => { playerCount = num; playSfx(scene, 600, 0.1); startCountdownSequence(scene); });
+    });
+}
+
+function bukaEditor() { document.getElementById('editor-ui').style.display = 'flex'; renderSoal(); }
+function renderSoal() {
+    const list = document.getElementById('soal-list'); list.innerHTML = '';
+    bankSoal.forEach((s, idx) => {
+        list.innerHTML += `<div class="q-block"><button class="btn-del" onclick="hapusSoal(${idx})">Hapus</button><h3>Soal #${idx + 1}</h3><div class="input-group"><label>Pertanyaan:</label><input type="text" id="q-${idx}" value="${s.q}"></div><div class="input-group"><label>Opsi A:</label><input type="text" id="a-${idx}-0" value="${s.a[0]}"><label>Opsi B:</label><input type="text" id="a-${idx}-1" value="${s.a[1]}"><label>Opsi C:</label><input type="text" id="a-${idx}-2" value="${s.a[2]}"><label>Opsi D:</label><input type="text" id="a-${idx}-3" value="${s.a[3]}"></div><div class="settings-row"><div style="flex:1"><label>Jawaban Benar:</label><select id="c-${idx}"><option value="0" ${s.c==0?'selected':''}>A</option><option value="1" ${s.c==1?'selected':''}>B</option><option value="2" ${s.c==2?'selected':''}>C</option><option value="3" ${s.c==3?'selected':''}>D</option></select></div><div style="flex:1"><label>Waktu (Detik):</label><input type="number" id="limit-${idx}" value="${s.limit || 30}"></div><div style="display:flex; align-items:center; gap:5px;"><label>Acak</label><input type="checkbox" id="shuffle-${idx}" ${s.shuffle ? 'checked' : ''}></div></div></div>`;
+    });
+}
+function tambahSoal() { bankSoal.push({ q: "Pertanyaan baru?", a: ["A", "B", "C", "D"], c: 0, limit: 30, shuffle: true }); renderSoal(); }
+function hapusSoal(idx) { if(bankSoal.length <= 1) return alert("Minimal 1 soal!"); bankSoal.splice(idx, 1); renderSoal(); }
+function resetKeDefault() { if(confirm("Reset ke soal default?")) { bankSoal = JSON.parse(JSON.stringify(defaultSoal)); localStorage.removeItem('race_soal'); renderSoal(); } }
+function simpanEditor() {
+    bankSoal = bankSoal.map((_, idx) => ({
+        q: document.getElementById(`q-${idx}`).value, a: [document.getElementById(`a-${idx}-0`).value, document.getElementById(`a-${idx}-1`).value, document.getElementById(`a-${idx}-2`).value, document.getElementById(`a-${idx}-3`).value],
+        c: parseInt(document.getElementById(`c-${idx}`).value), limit: parseInt(document.getElementById(`limit-${idx}`).value) || 20, shuffle: document.getElementById(`shuffle-${idx}`).checked
+    }));
+    localStorage.setItem('race_soal', JSON.stringify(bankSoal));
+    document.getElementById('editor-ui').style.display = 'none';
+}
+
+function startCountdownSequence(scene) {
+    scene.children.removeAll();
+    const txt = scene.add.text(640, 400, "", { fontSize: '300px', color: '#FF4500', fontStyle: '900', stroke: '#000', strokeThickness: 15 }).setOrigin(0.5);
+    let steps = ["3", "2", "1", "START!"], stepIdx = 0;
+    scene.time.addEvent({
+        delay: 1000, repeat: 3,
+        callback: () => {
+            if (stepIdx < 3) { playSfx(scene, 440, 0.1); txt.setText(steps[stepIdx]); } 
+            else if (stepIdx === 3) {
+                playSfx(scene, 880, 0.4);
+                txt.setText(steps[stepIdx]).setColor('#32CD32').setFontSize(220);
+                scene.time.delayedCall(400, () => { startBacksound(scene); buildGameArena(scene); });
+            }
+            scene.tweens.add({ targets: txt, scale: { from: 0.2, to: 1 }, alpha: { from: 1, to: 0.5 }, duration: 800 });
+            stepIdx++;
+        }
+    });
+    txt.setText("3"); playSfx(scene, 440, 0.1); stepIdx = 1;
+}
+
+// --- FUNGSI AUTO-SCALE TEXT ---
+function fitText(textObj, maxWidth, maxHeight, baseSize) {
+    let size = baseSize;
+    textObj.setFontSize(size + 'px');
+    while ((textObj.width > maxWidth || textObj.getBounds().height > maxHeight) && size > 10) {
+        size -= 0.5;
+        textObj.setFontSize(size + 'px');
+    }
+}
+
+// --- 2. ARENA PERMAINAN (50:50 SPLIT) ---
+function buildGameArena(scene) {
+    scene.children.removeAll();
+    players = []; finishedCount = 0; leaderboardShown = false; gameActive = false; 
+    
+    const trackAreaHeight = 280, trackTop = 80;
+    scene.add.rectangle(640, trackTop + trackAreaHeight/2, 1100, trackAreaHeight, 0xf9f9f9); 
+    // Lantai ubin
+    for(let x=140; x<=1140; x+=40) scene.add.line(0,0, x, trackTop, x, trackTop + trackAreaHeight, 0xdddddd).setOrigin(0);
+    for(let y=trackTop; y<=trackTop + trackAreaHeight; y+=40) scene.add.line(0,0, 140, y, 1140, y, 0xdddddd).setOrigin(0);
+
+    const laneHeight = trackAreaHeight / playerCount, quizStartY = 400; 
+    const panelSlotWidth = 1280 / playerCount, panelPadding = 8;
+
+    scene.add.text(640, 20, "🛒 MATHMART RACE 🛒", { fontSize: '24px', color: '#FF4500', fontStyle: '900', stroke: '#fff', strokeThickness: 3 }).setOrigin(0.5);
+    scene.add.text(140, 50, "🚪 MASUK", { fontSize: '18px', color: '#000', fontStyle: '900' }).setOrigin(0.5);
+    scene.add.text(1130, 50, "💰 KASIR", { fontSize: '18px', color: '#FF0000', fontStyle: '900' }).setOrigin(0.5);
+
+    // LOOP RAK SNACK DI SEMUA GARIS
+    for (let i = 0; i <= playerCount; i++) {
+        let yLine = trackTop + (i * laneHeight);
+        scene.add.rectangle(640, yLine, 1000, 10, 0x333333); 
+        for (let bx = 160; bx <= 1120; bx += 55) {
+            scene.add.text(bx, yLine, snacks[Math.floor(Math.random() * snacks.length)], { fontSize: '15px' }).setOrigin(0.5);
+        }
+        if (i < playerCount) {
+            let yTrack = yLine + (laneHeight / 2);
+            scene.add.rectangle(1130, yTrack + 8, 45, 25, 0x555555).setStrokeStyle(1, 0x000); 
+            scene.add.text(1125, yTrack - 5, "🏧", { fontSize: '15px' }); 
+            scene.add.text(1142, yTrack - 5, "👩‍💼", { fontSize: '25px' }).setOrigin(0.5); 
+            let p = {
+                id: i + 1, correctCount: 0, currentQIdx: 0, color: pColors[i], timer: 999999, finished: false, emoji: pEmojis[i],
+                icon: createCustomerIcon(scene, 140, yTrack, pEmojis[i], pColors[i], laneHeight),
+                inputLocked: true, currentCorrectIdx: 0
+            };
+            p.panel = createQuizPanel(scene, i, p, panelSlotWidth - panelPadding, quizStartY, panelSlotWidth);
+            players.push(p);
+            updateQuestion(i);
+        }
+    }
+    gameActive = true; 
+}
+
+function createCustomerIcon(scene, x, y, emoji, color, lh) {
+    let c = scene.add.container(x, y);
+    let sz = Math.min(lh * 0.7, 45);
+    let shadow = scene.add.ellipse(0, sz/2 - 5, sz, sz/3, 0x000000, 0.2);
+    let body = scene.add.circle(0, 0, sz/2 + 2, color, 1).setStrokeStyle(2, 0xffffff);
+    let emo = scene.add.text(0, 0, emoji, { fontSize: (sz*0.8) + 'px' }).setOrigin(0.5);
+    c.add([shadow, body, emo]); return c;
+}
+
+function createQuizPanel(scene, id, p, actualWidth, startY, slotWidth) {
+    let xCenter = (id * slotWidth) + (slotWidth / 2);
+    let panelHeight = 400;
+
+    scene.add.rectangle(xCenter, startY + panelHeight/2, actualWidth, panelHeight, 0x1E3A8A).setStrokeStyle(2, 0x333333);
+    
+    // Header (Zona 1: Nama Player) - DIKECILKAN SESUAI PROMPT
+    scene.add.rectangle(xCenter, startY + 20, actualWidth, 40, p.color);
+    scene.add.text(xCenter, startY + 20, `PLAYER ${p.id}`, { fontSize: '16px', color: '#fff', fontStyle: '900' }).setOrigin(0.5);
+    
+    // Timer Bar Hijau di bawah Header
+    let tBar = scene.add.rectangle(xCenter - (actualWidth/2) + 10, startY + 45, actualWidth - 20, 6, 0x32CD32).setOrigin(0);
+    
+    // ZONA JAWABAN (Zona 3: Bawah - Bottom Up Anchor agar D terlihat)
+    let buttons = [];
+    const labels = ['A','B','C','D'];
+    const bottomSafeY = 792; 
+    
+    let layout = { 
+        2: { aFs: 22, bH: 95, spacing: 18, qY: 135, qH: 120 }, 
+        3: { aFs: 19, bH: 56, spacing: 7,  qY: 135, qH: 110 }, 
+        4: { aFs: 18, bH: 52, spacing: 6,  qY: 130, qH: 100 }, 
+        5: { aFs: 16, bH: 50, spacing: 5,  qY: 130, qH: 95 } 
+    };
+    let cur = layout[playerCount] || layout[5];
+
+    for (let i = 0; i < 4; i++) {
+        let btnX, btnY, btnW;
+        if (playerCount <= 2) {
+            let col = i % 2; let row = Math.floor(i / 2);
+            btnW = (actualWidth / 2) - 15;
+            btnX = (xCenter - actualWidth/2) + (col * (actualWidth/2)) + (actualWidth/4);
+            btnY = (bottomSafeY - cur.bH/2 - 10) - ((1 - row) * (cur.bH + cur.spacing));
+        } else {
+            btnW = actualWidth - 14; btnX = xCenter;
+            btnY = (bottomSafeY - cur.bH/2 - 10) - ((3 - i) * (cur.bH + cur.spacing));
+        }
+        let bBg = scene.add.rectangle(btnX, btnY, btnW, cur.bH, 0xffffff).setInteractive({ useHandCursor: true }).setStrokeStyle(2, 0x001F3F);
+        let bTxt = scene.add.text(btnX, btnY, "", { color: '#000', fontStyle: 'bold', fontFamily: 'Arial', align: 'center', wordWrap: { width: btnW - 15 } }).setOrigin(0.5);
+        bBg.on('pointerdown', () => handleAnswer(id, i));
+        buttons.push({ bBg, bTxt, btnW, btnH: cur.bH, label: labels[i] });
+    }
+
+    // ZONA PERTANYAAN (Zona 2: Tengah - Diantara Timer dan Jawaban)
+    let qTopBound = startY + 65;
+    let qBottomBound = buttons[0].bBg.y - cur.bH/2;
+    let qAreaHeight = qBottomBound - qTopBound - 15;
+    let qMidY = qTopBound + (qAreaHeight / 2);
+    
+    scene.add.rectangle(xCenter, qMidY, actualWidth - 20, qAreaHeight, 0x000000, 0.3).setOrigin(0.5);
+    let qText = scene.add.text(xCenter, qMidY, "", { color: '#ffffff', fontStyle: 'bold', fontFamily: 'Arial', wordWrap: { width: actualWidth - 30 }, align: 'center' }).setOrigin(0.5);
+
+    return { qText, buttons, tBar, width: actualWidth, cur, qAreaH: qAreaHeight, qMidY: qMidY, aFs: cur.aFs };
+}
+
+function updateQuestion(pId) {
+    let p = players[pId];
+    if (p.currentQIdx >= bankSoal.length) {
+        if (!p.finished) { p.finished = true; p.finishTimestamp = Date.now(); finishedCount++; checkGameOver(); }
+        p.panel.qText.setText("✅ SELESAI!");
+        p.panel.buttons.forEach(b => { b.bBg.visible = false; b.bTxt.visible = false; });
+        return;
+    }
+    let data = bankSoal[p.currentQIdx];
+    let displayedOptions = [...data.a];
+    let correctText = data.a[data.c];
+    if (data.shuffle) {
+        for (let i = displayedOptions.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1)); [displayedOptions[i], displayedOptions[j]] = [displayedOptions[j], displayedOptions[i]];
+        }
+    }
+    p.currentCorrectIdx = displayedOptions.indexOf(correctText);
+    p.panel.qText.setText(data.q);
+    fitText(p.panel.qText, p.panel.width - 35, p.panel.qAreaH, 28);
+    p.panel.buttons.forEach((b, i) => {
+        b.bTxt.setText(b.label + ". " + displayedOptions[i]);
+        b.bBg.setFillStyle(0xffffff).setInteractive();
+        fitText(b.bTxt, b.btnW - 15, b.btnH - 12, p.panel.aFs);
+    });
+    p.inputLocked = false;
+    p.currentMaxTime = (data.limit || 30) * 1000;
+    p.timer = p.currentMaxTime;
+}
+
+function handleAnswer(pId, choice) {
+    let p = players[pId];
+    if (p.finished || !gameActive || p.inputLocked) return;
+    p.inputLocked = true;
+    let scene = game.scene.scenes[0];
+    if (choice !== null) {
+        if (choice === p.currentCorrectIdx) {
+            playSfx(scene, 1000, 0.1); p.correctCount++;
+            let targetX = 140 + (p.correctCount * (950 / bankSoal.length));
+            scene.tweens.add({ targets: p.icon, x: Math.min(targetX, 1130), duration: 600, ease: 'Power2' });
+            p.panel.buttons[choice].bBg.setFillStyle(0x32CD32);
+        } else {
+            playSfx(scene, 300, 0.2); p.panel.buttons[choice].bBg.setFillStyle(0xFF4500);
+        }
+    }
+    p.currentQIdx++;
+    scene.time.delayedCall(500, () => updateQuestion(pId));
+}
+
+function checkGameOver() {
+    if (finishedCount >= playerCount && !leaderboardShown) {
+        leaderboardShown = true; gameActive = false;
+        game.scene.scenes[0].time.delayedCall(1000, () => showLeaderboard(game.scene.scenes[0]));
+    }
+}
+
+function showLeaderboard(scene) {
+    const layer = scene.add.container(0, 0).setDepth(100000);
+    layer.add(scene.add.rectangle(640, 400, 1280, 800, 0x000000, 0.7).setInteractive());
+    const boardX = 640, boardY = 360;
+    layer.add(scene.add.rectangle(boardX, boardY, 850, 600, 0xffffff, 1).setStrokeStyle(15, 0xFFA500));
+    layer.add(scene.add.text(boardX, boardY - 260, "🏆 PERINGKAT PEMENANG 🏆", { fontSize: '42px', color: '#FF4500', fontStyle: '900', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5));
+    const sorted = [...players].sort((a, b) => (b.correctCount - a.correctCount) || (a.finishTimestamp - b.finishTimestamp));
+    sorted.forEach((p, i) => {
+        const rowY = boardY - 140 + (i * 72);
+        const medal = (i+1) === 1 ? "🥇 " : ((i+1) === 2 ? "🥈 " : ((i+1) === 3 ? "🥉 " : "   "));
+        layer.add(scene.add.text(boardX, rowY, `${medal}Peringkat ${i+1} : Player ${p.id} ${p.emoji} | Skor: ${p.correctCount}/${bankSoal.length}`, { fontSize: '28px', color: '#000', fontStyle: 'bold' }).setOrigin(0.5));
+    });
+    const btnY = boardY + 235;
+    const btnReset = scene.add.rectangle(boardX - 180, btnY, 280, 85, 0x32CD32).setInteractive({ useHandCursor: true }).setStrokeStyle(4, 0x000);
+    const txtReset = scene.add.text(boardX - 180, btnY, "MAIN LAGI", { fontSize: '28px', color: '#fff', fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
+    const btnSelect = scene.add.rectangle(boardX + 180, btnY, 280, 85, 0x1E90FF).setInteractive({ useHandCursor: true }).setStrokeStyle(4, 0x000);
+    const txtSelect = scene.add.text(boardX + 180, btnY, "PILIH PEMAIN", { fontSize: '28px', color: '#fff', fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
+    btnReset.on('pointerdown', () => { playSfx(scene, 600, 0.1); startCountdownSequence(scene); });
+    btnSelect.on('pointerdown', () => { playSfx(scene, 600, 0.1); initStartMenu(scene); });
+    layer.add([btnReset, txtReset, btnSelect, txtSelect]);
+}
+
+function update(time, delta) {
+    if (!gameActive) return;
+    players.forEach((p, idx) => {
+        if (!p.finished && p.currentMaxTime > 0) {
+            p.timer -= delta;
+            p.panel.tBar.width = Math.max(0, (p.panel.width - 20) * (p.timer / p.currentMaxTime));
+            if (p.timer <= 0) handleAnswer(idx, null);
+        }
+    });
+}
+
+function startBacksound(scene) {
+    const ctx = scene.sound.context;
+    if (scene.musicInterval) clearInterval(scene.musicInterval);
+    scene.musicInterval = setInterval(() => {
+        if (ctx.state === 'running' && gameActive) {
+            const osc = ctx.createOscillator(), g = ctx.createGain();
+            osc.frequency.setValueAtTime([261, 329, 392, 523][Math.floor(Math.random()*4)], ctx.currentTime);
+            g.gain.setValueAtTime(0.005, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+            osc.connect(g); g.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.4);
+        }
+    }, 600);
+}
+
+function playSfx(scene, freq, duration) {
+    let ctx = scene.sound.context; if (!ctx) return;
+    let osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    g.gain.setValueAtTime(0.05, ctx.currentTime);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + duration);
+}
+</script>
+</body>
+</html>
